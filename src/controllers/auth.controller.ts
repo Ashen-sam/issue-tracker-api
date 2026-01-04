@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { validationResult } from "express-validator";
 import User from "../models/User";
-
+//authController
 export const register = async (req: Request, res: Response): Promise<void> => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -106,8 +106,36 @@ export const getCurrentUser = async (
   res: Response
 ): Promise<void> => {
   try {
-    const user = await User.findById(req.user?.id).select("-password");
-    res.json(user);
+    if (!req.user?.id) {
+      res.status(401).json({ msg: "User not authenticated" });
+      return;
+    }
+
+    const user = await User.findById(req.user.id).select("-password");
+    
+    if (!user) {
+      res.status(404).json({ msg: "User not found" });
+      return;
+    }
+
+    // Extract token from Authorization header (middleware already validated it exists)
+    const authHeader = req.header("Authorization");
+    let token = "";
+    
+    if (authHeader) {
+      token = authHeader.startsWith("Bearer ") 
+        ? authHeader.substring(7) 
+        : authHeader;
+    }
+    
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      },
+    });
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error");

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { IUserPayload } from "../types";
-
+//authMiddleware
 export const authMiddleware = (
   req: Request,
   res: Response,

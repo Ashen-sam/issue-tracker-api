@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { validationResult } from "express-validator";
 import Issue from "../models/Issue";
 import { IIssueQuery } from "../types";
-
+//issueController
 export const getAllIssues = async (
   req: Request,
   res: Response
