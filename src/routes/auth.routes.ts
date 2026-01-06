@@ -4,9 +4,10 @@ import {
   register,
   login,
   getCurrentUser,
+  updateUser,
+  deleteUser,
 } from "../controllers/auth.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
-
 const router = Router();
 
 router.post(
@@ -31,5 +32,17 @@ router.post(
 );
 
 router.get("/me", authMiddleware, getCurrentUser);
+
+router.put(
+  "/me",
+  [
+    authMiddleware,
+    body("name", "Name is required").optional().notEmpty(),
+    body("email", "Please include a valid email").optional().isEmail(),
+  ],
+  updateUser
+);
+
+router.delete("/me", authMiddleware, deleteUser);
 
 export default router;

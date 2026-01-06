@@ -32,7 +32,9 @@ export const getAllIssues = async (
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const sortObj: Record<string, 1 | -1> = { [sortBy]: sortOrder === "desc" ? -1 : 1 };
+    const sortObj: Record<string, 1 | -1> = {
+      [sortBy]: sortOrder === "desc" ? -1 : 1,
+    };
 
     const issues = await Issue.find(filter)
       .populate("createdBy", "name email")
