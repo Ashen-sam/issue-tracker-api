@@ -36,17 +36,19 @@ export const getAllIssues = async (
       [sortBy]: sortOrder === "desc" ? -1 : 1,
     };
 
-    const issues = await Issue.find(filter)
-      .populate("createdBy", "name email")
-      .populate("assignedTo", "name email")
-      .sort(sortObj)
-      .limit(parseInt(limit))
-      .skip(skip);
-
-    const total = await Issue.countDocuments(filter);
-
-    const statusCounts = await Issue.aggregate([
-      { $group: { _id: "$status", count: { $sum: 1 } } },
+    const [issues, total, statusCounts] = await Promise.all([
+      Issue.find(filter)
+        .populate("createdBy", "name email")
+        .populate("assignedTo", "name email")
+        .sort(sortObj)
+        .limit(parseInt(limit))
+        .skip(skip)
+        .lean(),
+      Issue.countDocuments(filter),
+      Issue.aggregate([
+        ...(Object.keys(filter).length > 0 ? [{ $match: filter }] : []),
+        { $group: { _id: "$status", count: { $sum: 1 } } }
+      ]),
     ]);
 
     res.json({
@@ -110,9 +112,13 @@ export const createIssue = async (
     });
 
     const issue = await newIssue.save();
-    await issue.populate("createdBy", "name email");
+    // Populate in a single query for better performance
+    const populatedIssue = await Issue.findById(issue._id)
+      .populate("createdBy", "name email")
+      .populate("assignedTo", "name email")
+      .lean();
 
-    res.json(issue);
+    res.json(populatedIssue);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error");

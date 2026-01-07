@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import Issue from "../models/Issue";
-import User from "../models/User";
 
 export const getDashboard = async (
   req: Request,
@@ -26,147 +25,160 @@ export const getDashboard = async (
     const monthStart = new Date(now);
     monthStart.setMonth(monthStart.getMonth() - 1);
 
-    // User-specific Statistics
-    const myIssues = await Issue.countDocuments({ createdBy: userId });
-    const assignedToMe = await Issue.countDocuments({ assignedTo: userId });
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+
+    // Execute all database queries in parallel
+    const [myIssuesStats, assignedIssuesStats, recentIssues, highPriorityAssigned] = 
+      await Promise.all([
+        // My issues aggregation
+        Issue.aggregate([
+          { $match: { createdBy: userObjectId } },
+          {
+            $facet: {
+              total: [{ $count: "count" }],
+              statusBreakdown: [
+                { $group: { _id: "$status", count: { $sum: 1 } } }
+              ],
+              priorityBreakdown: [
+                { $group: { _id: "$priority", count: { $sum: 1 } } }
+              ],
+              severityBreakdown: [
+                { $group: { _id: "$severity", count: { $sum: 1 } } }
+              ],
+              timeBased: [
+                {
+                  $group: {
+                    _id: null,
+                    today: {
+                      $sum: { $cond: [{ $gte: ["$createdAt", todayStart] }, 1, 0] }
+                    },
+                    thisWeek: {
+                      $sum: { $cond: [{ $gte: ["$createdAt", weekStart] }, 1, 0] }
+                    },
+                    thisMonth: {
+                      $sum: { $cond: [{ $gte: ["$createdAt", monthStart] }, 1, 0] }
+                    }
+                  }
+                }
+              ],
+              // Add recent issues directly in aggregation
+              recentMyIssues: [
+                { $sort: { createdAt: -1 } },
+                { $limit: 10 },
+                {
+                  $project: {
+                    title: 1,
+                    status: 1,
+                    priority: 1,
+                    severity: 1,
+                    createdAt: 1,
+                    updatedAt: 1
+                  }
+                }
+              ]
+            }
+          }
+        ]),
+
+        // Assigned issues aggregation
+        Issue.aggregate([
+          { $match: { assignedTo: userObjectId } },
+          {
+            $facet: {
+              total: [{ $count: "count" }],
+              statusBreakdown: [
+                { $group: { _id: "$status", count: { $sum: 1 } } }
+              ],
+              unresolved: [
+                { $match: { status: { $nin: ["Resolved", "Closed"] } } },
+                { $count: "count" }
+              ],
+              // Add recent assigned issues directly
+              recentAssignedIssues: [
+                { $sort: { createdAt: -1 } },
+                { $limit: 10 },
+                {
+                  $project: {
+                    title: 1,
+                    status: 1,
+                    priority: 1,
+                    severity: 1,
+                    createdAt: 1,
+                    updatedAt: 1
+                  }
+                }
+              ]
+            }
+          }
+        ]),
+
+        // Recent activity (combined) - simplified query
+        Issue.find({ 
+          $or: [{ createdBy: userObjectId }, { assignedTo: userObjectId }] 
+        })
+          .sort({ updatedAt: -1 })
+          .limit(10)
+          .select("title status priority severity updatedAt createdAt")
+          .lean(),
+
+        // High priority assigned
+        Issue.find({
+          assignedTo: userObjectId,
+          priority: { $in: ["High", "Critical"] },
+          status: { $ne: "Closed" },
+        })
+          .sort({ priority: -1, createdAt: -1 })
+          .limit(5)
+          .select("title status priority severity createdAt")
+          .lean(),
+      ]);
+
+    // Type for aggregation result
+    type AggregationStat = { _id: string; count: number };
+
+    // Extract data from aggregations
+    const myStats = myIssuesStats[0] || {};
+    const assignedStats = assignedIssuesStats[0] || {};
+
+    const myIssues = myStats.total?.[0]?.count || 0;
+    const assignedToMe = assignedStats.total?.[0]?.count || 0;
     
-    const myOpenIssues = await Issue.countDocuments({
-      createdBy: userId,
-      status: "Open",
-    });
-    
-    const myInProgressIssues = await Issue.countDocuments({
-      createdBy: userId,
-      status: "In Progress",
-    });
-    
-    const myResolvedIssues = await Issue.countDocuments({
-      createdBy: userId,
-      status: "Resolved",
-    });
-    
-    const myClosedIssues = await Issue.countDocuments({
-      createdBy: userId,
-      status: "Closed",
-    });
+    const myStatusStats: AggregationStat[] = (myStats.statusBreakdown || []) as AggregationStat[];
+    const myPriorityStats: AggregationStat[] = (myStats.priorityBreakdown || []) as AggregationStat[];
+    const mySeverityStats: AggregationStat[] = (myStats.severityBreakdown || []) as AggregationStat[];
+    const timeBasedData = myStats.timeBased?.[0] || { today: 0, thisWeek: 0, thisMonth: 0 };
 
-    // Issues assigned to me
-    const assignedOpen = await Issue.countDocuments({
-      assignedTo: userId,
-      status: "Open",
-    });
-    
-    const assignedInProgress = await Issue.countDocuments({
-      assignedTo: userId,
-      status: "In Progress",
-    });
+    // Calculate status counts
+    const myOpenIssues = myStatusStats.find((s) => s._id === "Open")?.count || 0;
+    const myInProgressIssues = myStatusStats.find((s) => s._id === "In Progress")?.count || 0;
+    const myResolvedIssues = myStatusStats.find((s) => s._id === "Resolved")?.count || 0;
+    const myClosedIssues = myStatusStats.find((s) => s._id === "Closed")?.count || 0;
 
-    // Time-based Statistics for user
-    const myIssuesToday = await Issue.countDocuments({
-      createdBy: userId,
-      createdAt: { $gte: todayStart },
-    });
-    
-    const myIssuesThisWeek = await Issue.countDocuments({
-      createdBy: userId,
-      createdAt: { $gte: weekStart },
-    });
-    
-    const myIssuesThisMonth = await Issue.countDocuments({
-      createdBy: userId,
-      createdAt: { $gte: monthStart },
-    });
+    const assignedStatusStats = assignedStats.statusBreakdown || [];
+    const assignedOpen = assignedStatusStats.find((s: any) => s._id === "Open")?.count || 0;
+    const assignedInProgress = assignedStatusStats.find((s: any) => s._id === "In Progress")?.count || 0;
+    const unresolvedAssigned = assignedStats.unresolved?.[0]?.count || 0;
 
-    // Priority Statistics for user's issues
-    const myPriorityStats = await Issue.aggregate([
-      { $match: { createdBy: new mongoose.Types.ObjectId(userId) } },
-      {
-        $group: {
-          _id: "$priority",
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-
-    // Severity Statistics for user's issues
-    const mySeverityStats = await Issue.aggregate([
-      { $match: { createdBy: new mongoose.Types.ObjectId(userId) } },
-      {
-        $group: {
-          _id: "$severity",
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-
-    // Status Statistics for user's issues
-    const myStatusStats = await Issue.aggregate([
-      { $match: { createdBy: new mongoose.Types.ObjectId(userId) } },
-      {
-        $group: {
-          _id: "$status",
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-
-    // Recent Issues created by user (Last 10)
-    const myRecentIssues = await Issue.find({ createdBy: userId })
-      .populate("assignedTo", "name email")
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .select("title status priority severity createdAt updatedAt assignedTo");
-
-    // Recent Issues assigned to user (Last 10)
-    const assignedRecentIssues = await Issue.find({ assignedTo: userId })
-      .populate("createdBy", "name email")
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .select("title status priority severity createdAt updatedAt createdBy");
-
-    // Recent Activity (Recently updated issues by or assigned to user)
-    const recentActivity = await Issue.find({
-      $or: [{ createdBy: userId }, { assignedTo: userId }],
-    })
-      .populate("createdBy", "name email")
-      .populate("assignedTo", "name email")
-      .sort({ updatedAt: -1 })
-      .limit(10)
-      .select("title status priority severity updatedAt createdAt createdBy assignedTo");
-
-    // High Priority Issues assigned to me
-    const highPriorityAssigned = await Issue.find({
-      assignedTo: userId,
-      priority: { $in: ["High", "Critical"] },
-      status: { $ne: "Closed" },
-    })
-      .populate("createdBy", "name email")
-      .sort({ priority: -1, createdAt: -1 })
-      .limit(5)
-      .select("title status priority severity createdAt createdBy");
-
-    // Unresolved Issues assigned to me
-    const unresolvedAssigned = await Issue.countDocuments({
-      assignedTo: userId,
-      status: { $nin: ["Resolved", "Closed"] },
-    });
+    // Get recent issues from aggregation results
+    const myRecentIssues = myStats.recentMyIssues || [];
+    const assignedRecentIssues = assignedStats.recentAssignedIssues || [];
 
     // Priority Breakdown for my issues
-    const myPriorityBreakdown = myPriorityStats.map((stat) => ({
+    const myPriorityBreakdown = myPriorityStats.map((stat: AggregationStat) => ({
       priority: stat._id,
       count: stat.count,
       percentage: myIssues > 0 ? ((stat.count / myIssues) * 100).toFixed(1) : "0",
     }));
 
     // Severity Breakdown for my issues
-    const mySeverityBreakdown = mySeverityStats.map((stat) => ({
+    const mySeverityBreakdown = mySeverityStats.map((stat: AggregationStat) => ({
       severity: stat._id,
       count: stat.count,
       percentage: myIssues > 0 ? ((stat.count / myIssues) * 100).toFixed(1) : "0",
     }));
 
     // Status Breakdown for my issues
-    const myStatusBreakdown = myStatusStats.map((stat) => ({
+    const myStatusBreakdown = myStatusStats.map((stat: AggregationStat) => ({
       status: stat._id,
       count: stat.count,
       percentage: myIssues > 0 ? ((stat.count / myIssues) * 100).toFixed(1) : "0",
@@ -181,13 +193,13 @@ export const getDashboard = async (
     };
 
     // Issues by Priority for charts (my issues)
-    const myIssuesByPriority = myPriorityStats.reduce((acc: any, stat) => {
+    const myIssuesByPriority = myPriorityStats.reduce((acc: Record<string, number>, stat: AggregationStat) => {
       acc[stat._id] = stat.count;
       return acc;
     }, {});
 
     // Issues by Severity for charts (my issues)
-    const myIssuesBySeverity = mySeverityStats.reduce((acc: any, stat) => {
+    const myIssuesBySeverity = mySeverityStats.reduce((acc: Record<string, number>, stat: AggregationStat) => {
       acc[stat._id] = stat.count;
       return acc;
     }, {});
@@ -206,9 +218,9 @@ export const getDashboard = async (
         unresolvedAssigned,
       },
       timeBased: {
-        today: myIssuesToday,
-        thisWeek: myIssuesThisWeek,
-        thisMonth: myIssuesThisMonth,
+        today: timeBasedData.today,
+        thisWeek: timeBasedData.thisWeek,
+        thisMonth: timeBasedData.thisMonth,
       },
       breakdowns: {
         status: myStatusBreakdown,
@@ -224,7 +236,7 @@ export const getDashboard = async (
         myIssues: myRecentIssues,
         assignedToMe: assignedRecentIssues,
       },
-      recentActivity,
+      recentActivity: recentIssues,
       highPriorityAssigned,
     });
   } catch (err) {
@@ -232,4 +244,3 @@ export const getDashboard = async (
     res.status(500).json({ msg: "Server error" });
   }
 };
-

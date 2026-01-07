@@ -13,6 +13,9 @@ const connectDB = async (): Promise<void> => {
       tls: true,
       tlsAllowInvalidCertificates: true,
       tlsAllowInvalidHostnames: true,
+      // Connection pool settings for better performance
+      maxPoolSize: 10, // Maximum number of connections in the pool
+      minPoolSize: 5, // Minimum number of connections in the pool
     });
 
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
