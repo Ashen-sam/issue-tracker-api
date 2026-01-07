@@ -22,6 +22,7 @@ router.post(
     body("description", "Description is required").notEmpty(),
     body("priority").optional().isIn(["Low", "Medium", "High", "Critical"]),
     body("severity").optional().isIn(["Minor", "Major", "Critical"]),
+    body("foundDate").optional().isISO8601().withMessage("Found date must be a valid ISO 8601 date"),
   ],
   createIssue
 );

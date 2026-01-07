@@ -12,6 +12,7 @@ export interface IIssue extends Document {
   severity: IssueSeverity;
   createdBy: mongoose.Types.ObjectId;
   assignedTo?: mongoose.Types.ObjectId;
+  foundDate?: Date;
   resolvedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -51,6 +52,9 @@ const issueSchema = new Schema<IIssue>(
     assignedTo: {
       type: Schema.Types.ObjectId,
       ref: "User",
+    },
+    foundDate: {
+      type: Date,
     },
     resolvedAt: {
       type: Date,

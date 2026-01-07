@@ -106,10 +106,17 @@ export const createIssue = async (
   }
 
   try {
-    const newIssue = new Issue({
+    const issueData: any = {
       ...req.body,
       createdBy: req.user?.id,
-    });
+    };
+
+    // Convert foundDate to Date object if provided
+    if (req.body.foundDate) {
+      issueData.foundDate = new Date(req.body.foundDate);
+    }
+
+    const newIssue = new Issue(issueData);
 
     const issue = await newIssue.save();
     // Populate in a single query for better performance
@@ -129,7 +136,7 @@ export const updateIssue = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { title, description, status, priority, severity, assignedTo } =
+  const { title, description, status, priority, severity, assignedTo, foundDate } =
     req.body;
 
   try {
@@ -147,6 +154,9 @@ export const updateIssue = async (
     if (priority) updateFields.priority = priority;
     if (severity) updateFields.severity = severity;
     if (assignedTo) updateFields.assignedTo = assignedTo;
+    if (foundDate !== undefined) {
+      updateFields.foundDate = foundDate ? new Date(foundDate) : null;
+    }
 
     if (
       status &&
