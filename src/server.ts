@@ -5,6 +5,7 @@ import connectDB from "./config/db";
 import authRoutes from "./routes/auth.routes";
 import issueRoutes from "./routes/issue.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
+import analyticsRoutes from "./routes/analytics.routes";
 import { errorHandler } from "./middleware/errorHandler.middleware";
 
 dotenv.config();
@@ -22,6 +23,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/issues", issueRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/analytics", analyticsRoutes);
 
 // Health check
 app.get("/", (req, res) => {
